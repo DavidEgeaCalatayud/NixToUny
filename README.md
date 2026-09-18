@@ -2,7 +2,7 @@
 
 Migrador de Nixfarma a Unycop Next.
 
-## Estado actual - Hito 2
+## Estado actual - Hito 3
 
 La aplicación dispone de dos bloques funcionales:
 
@@ -38,6 +38,20 @@ El explorador:
 
 Las búsquedas de candidatos son orientativas. Ninguna tabla se considera correcta hasta revisar su estructura y relaciones.
 
+### 3. Mapa de esquema y consultas de muestra
+
+El explorador incorpora dos acciones nuevas:
+
+- **Exportar mapa (.json)**: genera un informe con los mejores candidatos de cada área, columnas, PK/FK, score y una consulta de muestra sugerida. El JSON no contiene registros funcionales ni credenciales.
+- **Copiar SELECT 20**: genera una consulta de solo lectura para la tabla o vista seleccionada, limitada a 20 filas mediante `ROWNUM <= 20`.
+
+Flujo recomendado:
+
+1. Exportar el mapa de esquema.
+2. Analizar el JSON para identificar las tablas reales.
+3. Ejecutar `SELECT 20` únicamente sobre las candidatas relevantes.
+4. Usar esas muestras para definir el mapeo Nixfarma → Unycop Next.
+
 ## Garantía de solo lectura del explorador
 
 `NixfarmaSchemaExplorer` no acepta SQL escrito por el usuario.
@@ -62,4 +76,4 @@ Después abre `NixToUny.sln` y ejecuta `NixToUny.App`.
 
 ## Siguiente paso
 
-Usar el explorador sobre una instalación real de Nixfarma para identificar las tablas correctas de artículos, familias, clientes, créditos y stock. Con esa información se crearán repositorios tipados y consultas de extracción específicas.
+Ejecutar el explorador en una instalación real, exportar el mapa JSON y analizarlo. Después se tomarán muestras de 20 filas solo de las tablas candidatas confirmadas para construir los repositorios tipados y el mapeo hacia Unycop Next.
