@@ -1,3 +1,4 @@
+using NixToUny.Nixfarma.Analysis;
 using NixToUny.Nixfarma.Configuration;
 using NixToUny.Nixfarma.Schema;
 
@@ -12,6 +13,8 @@ public sealed class SchemaExplorerForm : Form
     private readonly Button _btnCandidates = new() { Text = "Buscar candidatos", AutoSize = true };
     private readonly TextBox _txtSearch = new() { Width = 220, PlaceholderText = "tabla o columna..." };
     private readonly Button _btnSearch = new() { Text = "Buscar", AutoSize = true };
+    private readonly Button _btnCopySampleQuery = new() { Text = "Copiar SELECT 20", AutoSize = true };
+    private readonly Button _btnExportSchema = new() { Text = "Exportar mapa (.json)", AutoSize = true };
 
     private readonly DataGridView _objects = CreateGrid();
     private readonly DataGridView _columns = CreateGrid();
@@ -51,6 +54,8 @@ public sealed class SchemaExplorerForm : Form
         _btnDiscover.Click += async (_, _) => await DiscoverAsync(refresh: true);
         _btnCandidates.Click += async (_, _) => await FindCandidatesAsync();
         _btnSearch.Click += async (_, _) => await SearchAsync();
+        _btnCopySampleQuery.Click += (_, _) => CopySampleQuery();
+        _btnExportSchema.Click += async (_, _) => await ExportSchemaAsync();
         _txtSearch.KeyDown += async (_, e) =>
         {
             if (e.KeyCode != Keys.Enter)
@@ -113,6 +118,8 @@ public sealed class SchemaExplorerForm : Form
         });
         actions.Controls.Add(_txtSearch);
         actions.Controls.Add(_btnSearch);
+        actions.Controls.Add(_btnCopySampleQuery);
+        actions.Controls.Add(_btnExportSchema);
 
         var split = new SplitContainer
         {
@@ -323,6 +330,66 @@ public sealed class SchemaExplorerForm : Form
         }
     }
 
+    private void CopySampleQuery()
+    {
+        if (_objects.SelectedRows.Count == 0 ||
+            _objects.SelectedRows[0].Tag is not OracleObjectInfo selected)
+        {
+            _status.Text = "Selecciona primero una tabla o vista.";
+            return;
+        }
+
+        var sql = SampleQueryBuilder.Build(selected, 20);
+        Clipboard.SetText(sql);
+
+        _status.Text =
+            $"✓ Consulta de muestra copiada para {selected.QualifiedName}. " +
+            "Devuelve como máximo 20 filas y no modifica datos.";
+    }
+
+    private async Task ExportSchemaAsync()
+    {
+        if (_busy)
+            return;
+
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Exportar mapa de esquema de Nixfarma",
+            Filter = "JSON (*.json)|*.json",
+            FileName = $"nixfarma-schema-{DateTime.Now:yyyyMMdd-HHmmss}.json",
+            AddExtension = true,
+            DefaultExt = "json"
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        SetBusy(true, "Generando mapa de esquema para análisis...");
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            var exporter = new NixfarmaSchemaReportExporter(_explorer);
+
+            var report = await exporter.ExportAsync(
+                dialog.FileName,
+                10,
+                cts.Token);
+
+            _status.Text =
+                $"✓ Mapa exportado: {report.ObjectCount:N0} objetos analizados. " +
+                "El JSON contiene metadatos, candidatos y consultas SELECT 20; no contiene registros.";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"✗ No se pudo exportar el mapa: {ex.Message}";
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void PopulateObjects(IReadOnlyList<OracleObjectInfo> objects)
     {
         _suppressSelection = true;
@@ -443,6 +510,8 @@ public sealed class SchemaExplorerForm : Form
         _btnDiscover.Enabled = !busy;
         _btnCandidates.Enabled = !busy;
         _btnSearch.Enabled = !busy;
+        _btnCopySampleQuery.Enabled = !busy;
+        _btnExportSchema.Enabled = !busy;
         _cmbArea.Enabled = !busy;
         _txtSearch.Enabled = !busy;
 
