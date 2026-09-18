@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\NixToUny.Domain\NixToUny.Domain.csproj" />
+    <ProjectReference Include="..\NixToUny.Migration\NixToUny.Migration.csproj" />
+  </ItemGroup>
+</Project>
