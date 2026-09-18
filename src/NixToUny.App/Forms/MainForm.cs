@@ -10,6 +10,7 @@ public sealed class MainForm : Form
     private readonly NixfarmaConnectionTester _connectionTester = new();
 
     private NixfarmaDetectionResult? _detection;
+    private bool _connectionVerified;
 
     private readonly TextBox _txtTns = CreateReadOnlyTextBox();
     private readonly TextBox _txtAlias = CreateReadOnlyTextBox();
@@ -22,6 +23,8 @@ public sealed class MainForm : Form
 
     private readonly Button _btnDetect = new() { Text = "Detectar Nixfarma", AutoSize = true };
     private readonly Button _btnTest = new() { Text = "Probar conexión", AutoSize = true, Enabled = false };
+    private readonly Button _btnExplore = new() { Text = "Explorar BD (solo lectura)", AutoSize = true, Enabled = false };
+
     private readonly Label _status = new()
     {
         AutoSize = true,
@@ -41,6 +44,7 @@ public sealed class MainForm : Form
 
         _btnDetect.Click += (_, _) => DetectNixfarma();
         _btnTest.Click += async (_, _) => await TestConnectionAsync();
+        _btnExplore.Click += (_, _) => OpenSchemaExplorer();
         Shown += (_, _) => DetectNixfarma();
     }
 
@@ -100,6 +104,7 @@ public sealed class MainForm : Form
         };
         actions.Controls.Add(_btnDetect);
         actions.Controls.Add(_btnTest);
+        actions.Controls.Add(_btnExplore);
 
         root.Controls.Add(title);
         root.Controls.Add(subtitle);
@@ -112,6 +117,7 @@ public sealed class MainForm : Form
 
     private void DetectNixfarma()
     {
+        _connectionVerified = false;
         SetBusy(true, "Buscando configuración Oracle de Nixfarma...");
 
         try
@@ -123,6 +129,7 @@ public sealed class MainForm : Form
                 ClearDetectionFields();
                 _status.Text = "No se ha encontrado un tnsnames.ora válido para Nixfarma.";
                 _btnTest.Enabled = false;
+                _btnExplore.Enabled = false;
                 return;
             }
 
@@ -141,9 +148,11 @@ public sealed class MainForm : Form
         catch (Exception ex)
         {
             _detection = null;
+            _connectionVerified = false;
             ClearDetectionFields();
             _status.Text = $"Error durante la detección: {ex.Message}";
             _btnTest.Enabled = false;
+            _btnExplore.Enabled = false;
         }
         finally
         {
@@ -156,6 +165,7 @@ public sealed class MainForm : Form
         if (_detection is null)
             return;
 
+        _connectionVerified = false;
         SetBusy(true, "Probando conexión con Oracle...");
 
         try
@@ -166,6 +176,8 @@ public sealed class MainForm : Form
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var result = await _connectionTester.TestAsync(options, cts.Token);
 
+            _connectionVerified = result.Success;
+
             _status.Text = result.Success
                 ? $"✓ {result.Message} ({result.Duration.TotalMilliseconds:N0} ms)"
                 : $"✗ {result.Message}";
@@ -174,6 +186,18 @@ public sealed class MainForm : Form
         {
             SetBusy(false);
         }
+    }
+
+    private void OpenSchemaExplorer()
+    {
+        if (!_connectionVerified)
+        {
+            _status.Text = "Primero valida la conexión con Nixfarma.";
+            return;
+        }
+
+        using var explorer = new SchemaExplorerForm(BuildOptions());
+        explorer.ShowDialog(this);
     }
 
     private NixfarmaConnectionOptions BuildOptions()
@@ -192,6 +216,7 @@ public sealed class MainForm : Form
         UseWaitCursor = busy;
         _btnDetect.Enabled = !busy;
         _btnTest.Enabled = !busy && _detection is not null;
+        _btnExplore.Enabled = !busy && _connectionVerified;
 
         if (!string.IsNullOrWhiteSpace(message))
             _status.Text = message;
