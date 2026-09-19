@@ -6,6 +6,7 @@ namespace NixToUny.App.Forms;
 
 public sealed class SchemaExplorerForm : Form
 {
+    private readonly NixfarmaConnectionOptions _options;
     private readonly NixfarmaSchemaExplorer _explorer;
 
     private readonly Button _btnDiscover = new() { Text = "Descubrir esquema", AutoSize = true };
@@ -15,6 +16,7 @@ public sealed class SchemaExplorerForm : Form
     private readonly Button _btnSearch = new() { Text = "Buscar", AutoSize = true };
     private readonly Button _btnCopySampleQuery = new() { Text = "Copiar SELECT 20", AutoSize = true };
     private readonly Button _btnExportSchema = new() { Text = "Exportar esquema completo (.json)", AutoSize = true };
+    private readonly Button _btnExportSnapshot = new() { Text = "Exportar snapshot completo (.zip)", AutoSize = true };
 
     private readonly DataGridView _objects = CreateGrid();
     private readonly DataGridView _columns = CreateGrid();
@@ -33,7 +35,8 @@ public sealed class SchemaExplorerForm : Form
 
     public SchemaExplorerForm(NixfarmaConnectionOptions options)
     {
-        _explorer = new NixfarmaSchemaExplorer(options);
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _explorer = new NixfarmaSchemaExplorer(_options);
 
         Text = "NixToUny - Explorador Oracle de Nixfarma";
         StartPosition = FormStartPosition.CenterParent;
@@ -56,6 +59,7 @@ public sealed class SchemaExplorerForm : Form
         _btnSearch.Click += async (_, _) => await SearchAsync();
         _btnCopySampleQuery.Click += (_, _) => CopySampleQuery();
         _btnExportSchema.Click += async (_, _) => await ExportSchemaAsync();
+        _btnExportSnapshot.Click += async (_, _) => await ExportSnapshotAsync();
         _txtSearch.KeyDown += async (_, e) =>
         {
             if (e.KeyCode != Keys.Enter)
@@ -120,6 +124,7 @@ public sealed class SchemaExplorerForm : Form
         actions.Controls.Add(_btnSearch);
         actions.Controls.Add(_btnCopySampleQuery);
         actions.Controls.Add(_btnExportSchema);
+        actions.Controls.Add(_btnExportSnapshot);
 
         var split = new SplitContainer
         {
@@ -391,6 +396,73 @@ public sealed class SchemaExplorerForm : Form
         }
     }
 
+    private async Task ExportSnapshotAsync()
+    {
+        if (_busy)
+            return;
+
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Exportar snapshot técnico completo de Nixfarma",
+            Filter = "ZIP (*.zip)|*.zip",
+            FileName = $"nixfarma-snapshot-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
+            AddExtension = true,
+            DefaultExt = "zip"
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        var answer = MessageBox.Show(
+            this,
+            "Se intentarán leer hasta 10 filas de cada tabla y vista accesible. " +
+            "El snapshot aplica anonimización automática y omite LOB/binarios. " +
+            "La operación puede tardar varios minutos. ¿Continuar?",
+            "Exportar snapshot completo",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Information);
+
+        if (answer != DialogResult.Yes)
+            return;
+
+        SetBusy(true, "Preparando snapshot completo...");
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(20));
+
+            var progress = new Progress<NixfarmaSnapshotProgress>(p =>
+            {
+                _status.Text =
+                    $"Snapshot {p.Current:N0}/{p.Total:N0} · {p.QualifiedName} · {p.Status}";
+            });
+
+            var exporter = new NixfarmaSnapshotExporter(_options, _explorer);
+
+            var manifest = await exporter.ExportAsync(
+                dialog.FileName,
+                10,
+                progress,
+                cts.Token);
+
+            _status.Text =
+                $"✓ Snapshot terminado: {manifest.SuccessfulSamples:N0}/{manifest.ObjectCount:N0} objetos " +
+                $"con muestra; {manifest.FailedSamples:N0} errores. Archivo: {dialog.FileName}";
+        }
+        catch (OperationCanceledException)
+        {
+            _status.Text = "✗ La exportación del snapshot fue cancelada o superó el tiempo máximo.";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"✗ No se pudo generar el snapshot: {ex.Message}";
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void PopulateObjects(IReadOnlyList<OracleObjectInfo> objects)
     {
         _suppressSelection = true;
@@ -513,6 +585,7 @@ public sealed class SchemaExplorerForm : Form
         _btnSearch.Enabled = !busy;
         _btnCopySampleQuery.Enabled = !busy;
         _btnExportSchema.Enabled = !busy;
+        _btnExportSnapshot.Enabled = !busy;
         _cmbArea.Enabled = !busy;
         _txtSearch.Enabled = !busy;
 
