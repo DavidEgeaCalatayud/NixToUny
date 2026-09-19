@@ -44,7 +44,7 @@ El explorador incorpora dos acciones nuevas:
 
 - **Exportar esquema completo (.json)**: inventaría todos los `OWNER`, tablas y vistas accesibles (excepto esquemas internos de Oracle), con todas sus columnas, PK/FK, relaciones y una consulta `SELECT 20` sugerida por objeto. También añade una sección de candidatos heurísticos por área. El JSON no contiene registros funcionales ni credenciales.
 - **Copiar SELECT 20**: genera una consulta de solo lectura para la tabla o vista seleccionada, limitada a 20 filas mediante `ROWNUM <= 20`.
-- **Exportar snapshot completo (.zip)**: genera `schema.json`, `manifest.json` y hasta 10 filas sanitizadas por cada tabla/vista accesible. El proceso continúa aunque una vista concreta falle o agote el timeout.
+- **Exportar snapshot completo (.zip)**: genera `schema.json`, `manifest.json` y hasta 10 filas por cada tabla/vista accesible. Por defecto conserva los valores reales; la casilla **Anonimizar snapshot** permite generar una copia sanitizada. El proceso continúa aunque una vista concreta falle o agote el timeout.
 
 Flujo recomendado:
 
@@ -81,18 +81,20 @@ Después abre `NixToUny.sln` y ejecuta `NixToUny.App`.
 Ejecutar el explorador en una instalación real y exportar el esquema completo JSON. Ese inventario será la base para localizar no solo artículos/clientes/stock, sino también compras, proveedores, catálogos, tarifas, pedidos, históricos y cualquier otra estructura necesaria para migrar correctamente a Unycop Next.
 
 
-## Privacidad del snapshot
+## Tratamiento del snapshot
 
-El snapshot está pensado para poder analizarse fuera del equipo de la farmacia sin copiar un volcado bruto.
+Por defecto, **Anonimizar snapshot está desactivado** para conservar los valores reales necesarios durante el análisis de migración.
 
-Por defecto:
+El ZIP puede contener datos personales, comerciales y, dependiendo del esquema de Nixfarma, información especialmente sensible. Debe almacenarse, transferirse y analizarse únicamente dentro del alcance de la autorización/contrato aplicable.
+
+La opción **Anonimizar snapshot** sigue disponible. Cuando se activa:
 
 - nombres, NIF/CIF/DNI/NIE, teléfonos, email, domicilios y campos clínicos obvios se redactan;
-- identificadores de cliente/paciente se pseudonimizan de forma estable dentro del mismo snapshot para conservar relaciones;
-- PK genéricas de tablas sensibles como clientes/pacientes también se pseudonimizan;
-- fechas en objetos sensibles se redactan;
-- BLOB/CLOB/RAW/LONG y otros valores grandes o binarios se omiten;
-- los valores de texto se limitan a 300 caracteres;
-- no se incluyen credenciales Oracle.
+- identificadores de cliente/paciente se pseudonimizan de forma estable dentro del snapshot;
+- PK genéricas de tablas sensibles se pseudonimizan;
+- fechas en objetos sensibles se redactan.
 
-Aun así, el ZIP debe revisarse antes de compartirlo fuera de un entorno autorizado.
+En ambos modos:
+
+- BLOB/CLOB/RAW/LONG y otros valores grandes o binarios se omiten;
+- no se incluyen las credenciales Oracle.
