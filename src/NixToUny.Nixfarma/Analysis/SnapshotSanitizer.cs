@@ -20,26 +20,44 @@ public sealed class SnapshotSanitizer
         "TELEF", "MOVIL", "EMAIL", "E_MAIL", "MAIL",
         "IBAN", "CUENTA_BANC", "TARJETA_SANIT", "NUMSS",
         "OBSERV", "COMENT", "NOTA", "DIAGN", "PRESCRIP",
-        "RECETA", "MEDICO", "DOCTOR"
+        "RECETA", "MEDICO", "DOCTOR", "NACIM", "FECNAC",
+        "FECHA_NAC", "SEXO", "MUTUA", "ASEGUR"
     ];
 
     private static readonly string[] PersonIdentifierTerms =
     [
         "IDCLIENT", "ID_CLIENT", "CODCLIENT", "COD_CLIENT",
         "CODCLI", "CLIENTE", "IDPACIENT", "ID_PACIENT",
-        "CODPACIENT", "COD_PACIENT", "PACIENTE", "TITULAR"
+        "CODPACIENT", "COD_PACIENT", "CODPAC", "PACIENTE", "TITULAR"
     ];
 
-    public string GetProtection(string columnName, string dataType)
+    private static readonly string[] SensitiveObjectTerms =
+    [
+        "CLIENT", "PACIENT", "RECETA", "PRESCRIP",
+        "DISPENS", "HISTORIA", "CREDITO", "DEUDA"
+    ];
+
+    public string GetProtection(
+        string objectName,
+        OracleColumnInfo column)
     {
-        if (IsLargeOrBinary(dataType))
+        if (IsLargeOrBinary(column.DataType))
             return "omitted";
 
-        if (ContainsAny(columnName, DirectRedactionTerms))
+        if (ContainsAny(column.Name, DirectRedactionTerms))
             return "redacted";
 
-        if (ContainsAny(columnName, PersonIdentifierTerms))
+        if (ContainsAny(column.Name, PersonIdentifierTerms))
             return "pseudonymized";
+
+        if (IsSensitiveObject(objectName) && column.IsPrimaryKey)
+            return "pseudonymized";
+
+        if (IsSensitiveObject(objectName) &&
+            IsDateLike(column.DataType))
+        {
+            return "redacted";
+        }
 
         return "preserved";
     }
@@ -53,7 +71,7 @@ public sealed class SnapshotSanitizer
         if (value is null)
             return null;
 
-        return GetProtection(column.Name, column.DataType) switch
+        return GetProtection(objectName, column) switch
         {
             "omitted" => "<omitted>",
             "redacted" => value.Length == 0 ? string.Empty : "<redacted>",
@@ -84,6 +102,13 @@ public sealed class SnapshotSanitizer
         dataType.Contains("NCLOB", StringComparison.OrdinalIgnoreCase) ||
         dataType.Contains("LONG", StringComparison.OrdinalIgnoreCase) ||
         dataType.Contains("RAW", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsDateLike(string dataType) =>
+        dataType.Contains("DATE", StringComparison.OrdinalIgnoreCase) ||
+        dataType.Contains("TIMESTAMP", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSensitiveObject(string objectName) =>
+        ContainsAny(objectName, SensitiveObjectTerms);
 
     private static bool ContainsAny(string value, IEnumerable<string> terms) =>
         terms.Any(term => value.Contains(term, StringComparison.OrdinalIgnoreCase));
