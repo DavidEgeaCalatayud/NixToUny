@@ -42,13 +42,13 @@ Las búsquedas de candidatos son orientativas. Ninguna tabla se considera correc
 
 El explorador incorpora dos acciones nuevas:
 
-- **Exportar mapa (.json)**: genera un informe con los mejores candidatos de cada área, columnas, PK/FK, score y una consulta de muestra sugerida. El JSON no contiene registros funcionales ni credenciales.
+- **Exportar esquema completo (.json)**: inventaría todos los `OWNER`, tablas y vistas accesibles (excepto esquemas internos de Oracle), con todas sus columnas, PK/FK, relaciones y una consulta `SELECT 20` sugerida por objeto. También añade una sección de candidatos heurísticos por área. El JSON no contiene registros funcionales ni credenciales.
 - **Copiar SELECT 20**: genera una consulta de solo lectura para la tabla o vista seleccionada, limitada a 20 filas mediante `ROWNUM <= 20`.
 
 Flujo recomendado:
 
-1. Exportar el mapa de esquema.
-2. Analizar el JSON para identificar las tablas reales.
+1. Exportar el esquema completo.
+2. Analizar todos los `OWNER`, tablas, vistas, columnas y relaciones para identificar las áreas funcionales reales.
 3. Ejecutar `SELECT 20` únicamente sobre las candidatas relevantes.
 4. Usar esas muestras para definir el mapeo Nixfarma → Unycop Next.
 
@@ -76,4 +76,4 @@ Después abre `NixToUny.sln` y ejecuta `NixToUny.App`.
 
 ## Siguiente paso
 
-Ejecutar el explorador en una instalación real, exportar el mapa JSON y analizarlo. Después se tomarán muestras de 20 filas solo de las tablas candidatas confirmadas para construir los repositorios tipados y el mapeo hacia Unycop Next.
+Ejecutar el explorador en una instalación real y exportar el esquema completo JSON. Ese inventario será la base para localizar no solo artículos/clientes/stock, sino también compras, proveedores, catálogos, tarifas, pedidos, históricos y cualquier otra estructura necesaria para migrar correctamente a Unycop Next.
