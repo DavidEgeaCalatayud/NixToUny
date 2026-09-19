@@ -14,7 +14,7 @@ public sealed class SchemaExplorerForm : Form
     private readonly TextBox _txtSearch = new() { Width = 220, PlaceholderText = "tabla o columna..." };
     private readonly Button _btnSearch = new() { Text = "Buscar", AutoSize = true };
     private readonly Button _btnCopySampleQuery = new() { Text = "Copiar SELECT 20", AutoSize = true };
-    private readonly Button _btnExportSchema = new() { Text = "Exportar mapa (.json)", AutoSize = true };
+    private readonly Button _btnExportSchema = new() { Text = "Exportar esquema completo (.json)", AutoSize = true };
 
     private readonly DataGridView _objects = CreateGrid();
     private readonly DataGridView _columns = CreateGrid();
@@ -354,7 +354,7 @@ public sealed class SchemaExplorerForm : Form
 
         using var dialog = new SaveFileDialog
         {
-            Title = "Exportar mapa de esquema de Nixfarma",
+            Title = "Exportar esquema completo accesible de Nixfarma",
             Filter = "JSON (*.json)|*.json",
             FileName = $"nixfarma-schema-{DateTime.Now:yyyyMMdd-HHmmss}.json",
             AddExtension = true,
@@ -364,21 +364,22 @@ public sealed class SchemaExplorerForm : Form
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
-        SetBusy(true, "Generando mapa de esquema para análisis...");
+        SetBusy(true, "Inventariando todas las tablas, vistas, columnas y relaciones accesibles...");
 
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             var exporter = new NixfarmaSchemaReportExporter(_explorer);
 
             var report = await exporter.ExportAsync(
                 dialog.FileName,
-                10,
+                20,
                 cts.Token);
 
             _status.Text =
-                $"✓ Mapa exportado: {report.ObjectCount:N0} objetos analizados. " +
-                "El JSON contiene metadatos, candidatos y consultas SELECT 20; no contiene registros.";
+                $"✓ Esquema exportado: {report.TableCount:N0} tablas, {report.ViewCount:N0} vistas, " +
+                $"{report.ColumnCount:N0} columnas y {report.RelationCount:N0} relaciones en " +
+                $"{report.OwnerCount:N0} owners. El JSON no contiene registros ni credenciales.";
         }
         catch (Exception ex)
         {
