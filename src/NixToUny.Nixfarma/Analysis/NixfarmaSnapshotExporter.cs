@@ -30,6 +30,7 @@ public sealed class NixfarmaSnapshotExporter
     public async Task<NixfarmaSnapshotManifest> ExportAsync(
         string zipPath,
         int rowsPerObject = 10,
+        bool sanitize = false,
         IProgress<NixfarmaSnapshotProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -98,6 +99,7 @@ public sealed class NixfarmaSnapshotExporter
                     connection,
                     objectReport,
                     rowsPerObject,
+                    sanitize,
                     cancellationToken);
 
                 await WriteJsonEntryAsync(
@@ -145,7 +147,7 @@ public sealed class NixfarmaSnapshotExporter
             "nix-to-uny-snapshot-v1",
             DateTimeOffset.UtcNow,
             rowsPerObject,
-            true,
+            sanitize,
             summaries.Count,
             summaries.Count(x => x.Error is null),
             summaries.Count(x => x.Error is not null),
@@ -171,6 +173,7 @@ public sealed class NixfarmaSnapshotExporter
         OracleConnection connection,
         NixfarmaObjectReport report,
         int maxRows,
+        bool sanitize,
         CancellationToken cancellationToken)
     {
         if (report.Columns.Count == 0)
@@ -203,7 +206,11 @@ public sealed class NixfarmaSnapshotExporter
             .Select(column => new NixfarmaSampleColumn(
                 column.Name,
                 column.DataType,
-                _sanitizer.GetProtection(report.Object.Name, column)))
+                SnapshotSanitizer.IsLargeOrBinary(column.DataType)
+                    ? "omitted"
+                    : sanitize
+                        ? _sanitizer.GetProtection(report.Object.Name, column)
+                        : "preserved"))
             .ToArray();
 
         var rows = new List<IReadOnlyList<string?>>();
@@ -226,11 +233,13 @@ public sealed class NixfarmaSnapshotExporter
                     ? null
                     : FormatValue(reader.GetValue(i));
 
-                row[i] = _sanitizer.Protect(
-                    report.Object.Owner,
-                    report.Object.Name,
-                    column,
-                    raw);
+                row[i] = sanitize
+                    ? _sanitizer.Protect(
+                        report.Object.Owner,
+                        report.Object.Name,
+                        column,
+                        raw)
+                    : raw;
             }
 
             rows.Add(row);
@@ -315,13 +324,15 @@ public sealed class NixfarmaSnapshotExporter
         Contenido:
         - schema.json: esquema completo accesible, columnas, PK/FK y candidatos.
         - manifest.json: índice de todas las muestras y errores.
-        - samples/: hasta {manifest.RowsPerObject} filas sanitizadas por tabla/vista.
+        - samples/: hasta {manifest.RowsPerObject} filas por tabla/vista.
+
+        Sanitización activada: {manifest.Sanitized}
 
         El snapshot está diseñado para análisis técnico.
-        Los identificadores personales obvios se redactan o pseudonimizan,
-        los valores LOB/binarios se omiten y no se incluyen credenciales.
+        Si Sanitización activada = False, las muestras contienen valores reales.
+        Los valores LOB/binarios se omiten y no se incluyen credenciales Oracle.
 
-        Revísalo antes de compartirlo fuera del entorno autorizado.
+        Trátalo como información confidencial de la farmacia y conforme a la autorización aplicable.
         """;
 
     private static string CleanError(string message)
