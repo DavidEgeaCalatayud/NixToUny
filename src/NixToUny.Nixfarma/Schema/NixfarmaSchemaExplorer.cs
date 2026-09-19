@@ -20,6 +20,7 @@ public sealed class NixfarmaSchemaExplorer
 
     private IReadOnlyList<OracleObjectInfo>? _objectsCache;
     private IReadOnlyList<OracleColumnInfo>? _columnIndexCache;
+    private IReadOnlyList<OracleRelationInfo>? _relationsCache;
 
     public NixfarmaSchemaExplorer(NixfarmaConnectionOptions options)
     {
@@ -198,6 +199,125 @@ public sealed class NixfarmaSchemaExplorer
         return result;
     }
 
+    public async Task<IReadOnlyList<OracleColumnInfo>> DiscoverAllColumnsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_columnIndexCache is not null)
+            return _columnIndexCache;
+
+        var sql = $"""
+            SELECT
+                c.owner,
+                c.table_name,
+                c.column_name,
+                c.data_type,
+                c.data_length,
+                c.data_precision,
+                c.data_scale,
+                c.nullable,
+                c.column_id,
+                CASE
+                    WHEN pk.column_name IS NULL THEN 0
+                    ELSE 1
+                END AS is_primary_key
+            FROM all_tab_columns c
+            LEFT JOIN (
+                SELECT cc.owner, cc.table_name, cc.column_name
+                FROM all_constraints con
+                INNER JOIN all_cons_columns cc
+                    ON cc.owner = con.owner
+                   AND cc.constraint_name = con.constraint_name
+                   AND cc.table_name = con.table_name
+                WHERE con.constraint_type = 'P'
+            ) pk
+                ON pk.owner = c.owner
+               AND pk.table_name = c.table_name
+               AND pk.column_name = c.column_name
+            WHERE c.owner NOT IN ({ExcludedOwners})
+            ORDER BY c.owner, c.table_name, c.column_id
+            """;
+
+        var result = new List<OracleColumnInfo>();
+
+        await using var connection = NixfarmaConnectionFactory.Create(_options);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandTimeout = 90;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(ReadColumn(reader, includesPrimaryKey: true));
+
+        _columnIndexCache = result;
+        return result;
+    }
+
+    public async Task<IReadOnlyList<OracleRelationInfo>> DiscoverAllRelationsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_relationsCache is not null)
+            return _relationsCache;
+
+        var sql = $"""
+            SELECT
+                fk.constraint_name,
+                fk.owner,
+                fk.table_name,
+                fkc.column_name,
+                pk.owner AS referenced_owner,
+                pk.table_name AS referenced_table,
+                pkc.column_name AS referenced_column,
+                fkc.position
+            FROM all_constraints fk
+            INNER JOIN all_cons_columns fkc
+                ON fkc.owner = fk.owner
+               AND fkc.constraint_name = fk.constraint_name
+               AND fkc.table_name = fk.table_name
+            INNER JOIN all_constraints pk
+                ON pk.owner = fk.r_owner
+               AND pk.constraint_name = fk.r_constraint_name
+            INNER JOIN all_cons_columns pkc
+                ON pkc.owner = pk.owner
+               AND pkc.constraint_name = pk.constraint_name
+               AND pkc.table_name = pk.table_name
+               AND pkc.position = fkc.position
+            WHERE fk.constraint_type = 'R'
+              AND fk.owner NOT IN ({ExcludedOwners})
+              AND pk.owner NOT IN ({ExcludedOwners})
+            ORDER BY fk.owner, fk.table_name, fk.constraint_name, fkc.position
+            """;
+
+        var result = new List<OracleRelationInfo>();
+
+        await using var connection = NixfarmaConnectionFactory.Create(_options);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandTimeout = 90;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new OracleRelationInfo(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetString(5),
+                reader.GetString(6),
+                Convert.ToInt32(reader.GetValue(7))));
+        }
+
+        _relationsCache = result;
+        return result;
+    }
+
     public async Task<IReadOnlyList<SchemaCandidateResult>> FindCandidatesAsync(
         NixfarmaDataArea area,
         int maxResults = 30,
@@ -227,47 +347,12 @@ public sealed class NixfarmaSchemaExplorer
     {
         _objectsCache = null;
         _columnIndexCache = null;
+        _relationsCache = null;
     }
 
-    private async Task<IReadOnlyList<OracleColumnInfo>> LoadColumnIndexAsync(
-        CancellationToken cancellationToken)
-    {
-        if (_columnIndexCache is not null)
-            return _columnIndexCache;
-
-        var sql = $"""
-            SELECT
-                owner,
-                table_name,
-                column_name,
-                data_type,
-                data_length,
-                data_precision,
-                data_scale,
-                nullable,
-                column_id
-            FROM all_tab_columns
-            WHERE owner NOT IN ({ExcludedOwners})
-            ORDER BY owner, table_name, column_id
-            """;
-
-        var result = new List<OracleColumnInfo>();
-
-        await using var connection = NixfarmaConnectionFactory.Create(_options);
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.CommandTimeout = 45;
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
-        while (await reader.ReadAsync(cancellationToken))
-            result.Add(ReadColumn(reader, includesPrimaryKey: false));
-
-        _columnIndexCache = result;
-        return result;
-    }
+    private Task<IReadOnlyList<OracleColumnInfo>> LoadColumnIndexAsync(
+        CancellationToken cancellationToken) =>
+        DiscoverAllColumnsAsync(cancellationToken);
 
     private static OracleColumnInfo ReadColumn(
         OracleDataReader reader,
