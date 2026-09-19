@@ -13,14 +13,78 @@ public sealed class NixfarmaSchemaReportExporter
     }
 
     public async Task<NixfarmaSchemaReport> BuildAsync(
-        int candidatesPerArea = 10,
+        int candidatesPerArea = 20,
         CancellationToken cancellationToken = default)
     {
-        if (candidatesPerArea is < 1 or > 30)
+        if (candidatesPerArea is < 1 or > 50)
             throw new ArgumentOutOfRangeException(nameof(candidatesPerArea));
 
-        var objects = await _explorer.DiscoverObjectsAsync(cancellationToken);
-        var areas = new List<NixfarmaAreaReport>();
+        var objectsTask = _explorer.DiscoverObjectsAsync(cancellationToken);
+        var columnsTask = _explorer.DiscoverAllColumnsAsync(cancellationToken);
+        var relationsTask = _explorer.DiscoverAllRelationsAsync(cancellationToken);
+
+        await Task.WhenAll(objectsTask, columnsTask, relationsTask);
+
+        var objects = await objectsTask;
+        var columns = await columnsTask;
+        var relations = await relationsTask;
+
+        var columnsByObject = columns
+            .GroupBy(x => Key(x.Owner, x.ObjectName), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                x => x.Key,
+                x => (IReadOnlyList<OracleColumnInfo>)x
+                    .OrderBy(c => c.Position)
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var outgoingByObject = relations
+            .GroupBy(x => Key(x.Owner, x.TableName), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                x => x.Key,
+                x => (IReadOnlyList<OracleRelationInfo>)x.ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var incomingByObject = relations
+            .GroupBy(x => Key(x.ReferencedOwner, x.ReferencedTableName), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                x => x.Key,
+                x => (IReadOnlyList<OracleRelationInfo>)x.ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var ownerReports = objects
+            .GroupBy(x => x.Owner, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(ownerGroup =>
+            {
+                var objectReports = ownerGroup
+                    .OrderBy(x => x.ObjectType, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(obj =>
+                    {
+                        var key = Key(obj.Owner, obj.Name);
+
+                        columnsByObject.TryGetValue(key, out var objectColumns);
+                        outgoingByObject.TryGetValue(key, out var outgoing);
+                        incomingByObject.TryGetValue(key, out var incoming);
+
+                        return new NixfarmaObjectReport(
+                            obj,
+                            objectColumns ?? [],
+                            outgoing ?? [],
+                            incoming ?? [],
+                            SampleQueryBuilder.Build(obj, 20));
+                    })
+                    .ToArray();
+
+                return new NixfarmaOwnerReport(
+                    ownerGroup.Key,
+                    objectReports.Length,
+                    objectReports);
+            })
+            .ToArray();
+
+        var candidateAreas = new List<NixfarmaAreaReport>();
 
         foreach (var area in Enum.GetValues<NixfarmaDataArea>())
         {
@@ -29,48 +93,32 @@ public sealed class NixfarmaSchemaReportExporter
                 candidatesPerArea,
                 cancellationToken);
 
-            var reports = new List<NixfarmaCandidateReport>();
-
-            foreach (var candidate in candidates)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var columns = await _explorer.DiscoverColumnsAsync(
-                    candidate.Object.Owner,
-                    candidate.Object.Name,
-                    cancellationToken);
-
-                IReadOnlyList<OracleRelationInfo> relations =
-                    string.Equals(candidate.Object.ObjectType, "TABLE", StringComparison.OrdinalIgnoreCase)
-                        ? await _explorer.DiscoverRelationsAsync(
-                            candidate.Object.Owner,
-                            candidate.Object.Name,
-                            cancellationToken)
-                        : [];
-
-                reports.Add(new NixfarmaCandidateReport(
-                    candidate.Object,
+            candidateAreas.Add(new NixfarmaAreaReport(
+                area,
+                candidates.Select(candidate => new NixfarmaCandidateReport(
+                    candidate.Object.QualifiedName,
+                    candidate.Object.ObjectType,
                     candidate.Score,
                     candidate.MatchedTerms,
-                    candidate.MatchingColumns,
-                    columns,
-                    relations,
-                    SampleQueryBuilder.Build(candidate.Object, 20)));
-            }
-
-            areas.Add(new NixfarmaAreaReport(area, reports));
+                    candidate.MatchingColumns))
+                .ToArray()));
         }
 
         return new NixfarmaSchemaReport(
-            "nix-to-uny-schema-v1",
+            "nix-to-uny-schema-v2",
             DateTimeOffset.UtcNow,
-            objects.Count,
-            areas);
+            ownerReports.Length,
+            objects.Count(x => string.Equals(x.ObjectType, "TABLE", StringComparison.OrdinalIgnoreCase)),
+            objects.Count(x => string.Equals(x.ObjectType, "VIEW", StringComparison.OrdinalIgnoreCase)),
+            columns.Count,
+            relations.Count,
+            ownerReports,
+            candidateAreas);
     }
 
     public async Task<NixfarmaSchemaReport> ExportAsync(
         string filePath,
-        int candidatesPerArea = 10,
+        int candidatesPerArea = 20,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(filePath))
@@ -89,4 +137,7 @@ public sealed class NixfarmaSchemaReportExporter
 
         return report;
     }
+
+    private static string Key(string owner, string objectName) =>
+        $"{owner}\u001F{objectName}";
 }
