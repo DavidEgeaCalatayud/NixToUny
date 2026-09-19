@@ -2,7 +2,7 @@
 
 Migrador de Nixfarma a Unycop Next.
 
-## Estado actual - Hito 2
+## Estado actual - Hito 3
 
 La aplicación dispone de dos bloques funcionales:
 
@@ -38,6 +38,22 @@ El explorador:
 
 Las búsquedas de candidatos son orientativas. Ninguna tabla se considera correcta hasta revisar su estructura y relaciones.
 
+### 3. Inventario completo y snapshot técnico
+
+El explorador incorpora dos acciones nuevas:
+
+- **Exportar esquema completo (.json)**: inventaría todos los `OWNER`, tablas y vistas accesibles (excepto esquemas internos de Oracle), con todas sus columnas, PK/FK, relaciones y una consulta `SELECT 20` sugerida por objeto. También añade una sección de candidatos heurísticos por área. El JSON no contiene registros funcionales ni credenciales.
+- **Copiar SELECT 20**: genera una consulta de solo lectura para la tabla o vista seleccionada, limitada a 20 filas mediante `ROWNUM <= 20`.
+- **Exportar snapshot completo (.zip)**: genera `schema.json`, `manifest.json` y hasta 10 filas por cada tabla/vista accesible. Por defecto conserva los valores reales; la casilla **Anonimizar snapshot** permite generar una copia sanitizada. El proceso continúa aunque una vista concreta falle o agote el timeout.
+
+Flujo recomendado:
+
+1. Exportar el esquema completo.
+2. Analizar todos los `OWNER`, tablas, vistas, columnas y relaciones para identificar las áreas funcionales reales.
+3. Si el acceso a la farmacia es puntual, exportar también el snapshot ZIP completo.
+4. Analizar el snapshot fuera de la farmacia para clasificar todas las áreas funcionales.
+5. Usar las muestras sanitizadas para definir el mapeo Nixfarma → Unycop Next.
+
 ## Garantía de solo lectura del explorador
 
 `NixfarmaSchemaExplorer` no acepta SQL escrito por el usuario.
@@ -62,4 +78,23 @@ Después abre `NixToUny.sln` y ejecuta `NixToUny.App`.
 
 ## Siguiente paso
 
-Usar el explorador sobre una instalación real de Nixfarma para identificar las tablas correctas de artículos, familias, clientes, créditos y stock. Con esa información se crearán repositorios tipados y consultas de extracción específicas.
+Ejecutar el explorador en una instalación real y exportar el esquema completo JSON. Ese inventario será la base para localizar no solo artículos/clientes/stock, sino también compras, proveedores, catálogos, tarifas, pedidos, históricos y cualquier otra estructura necesaria para migrar correctamente a Unycop Next.
+
+
+## Tratamiento del snapshot
+
+Por defecto, **Anonimizar snapshot está desactivado** para conservar los valores reales necesarios durante el análisis de migración.
+
+El ZIP puede contener datos personales, comerciales y, dependiendo del esquema de Nixfarma, información especialmente sensible. Debe almacenarse, transferirse y analizarse únicamente dentro del alcance de la autorización/contrato aplicable.
+
+La opción **Anonimizar snapshot** sigue disponible. Cuando se activa:
+
+- nombres, NIF/CIF/DNI/NIE, teléfonos, email, domicilios y campos clínicos obvios se redactan;
+- identificadores de cliente/paciente se pseudonimizan de forma estable dentro del snapshot;
+- PK genéricas de tablas sensibles se pseudonimizan;
+- fechas en objetos sensibles se redactan.
+
+En ambos modos:
+
+- BLOB/CLOB/RAW/LONG y otros valores grandes o binarios se omiten;
+- no se incluyen las credenciales Oracle.
