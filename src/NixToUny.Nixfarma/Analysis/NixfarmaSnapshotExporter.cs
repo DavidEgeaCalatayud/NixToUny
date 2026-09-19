@@ -203,7 +203,7 @@ public sealed class NixfarmaSnapshotExporter
             .Select(column => new NixfarmaSampleColumn(
                 column.Name,
                 column.DataType,
-                _sanitizer.GetProtection(column.Name, column.DataType)))
+                _sanitizer.GetProtection(report.Object.Name, column)))
             .ToArray();
 
         var rows = new List<IReadOnlyList<string?>>();
