@@ -17,6 +17,13 @@ public sealed class SchemaExplorerForm : Form
     private readonly Button _btnCopySampleQuery = new() { Text = "Copiar SELECT 20", AutoSize = true };
     private readonly Button _btnExportSchema = new() { Text = "Exportar esquema completo (.json)", AutoSize = true };
     private readonly Button _btnExportSnapshot = new() { Text = "Exportar snapshot completo (.zip)", AutoSize = true };
+    private readonly CheckBox _chkSanitizeSnapshot = new()
+    {
+        Text = "Anonimizar snapshot",
+        AutoSize = true,
+        Checked = false,
+        Margin = new Padding(8, 7, 0, 0)
+    };
 
     private readonly DataGridView _objects = CreateGrid();
     private readonly DataGridView _columns = CreateGrid();
@@ -125,6 +132,7 @@ public sealed class SchemaExplorerForm : Form
         actions.Controls.Add(_btnCopySampleQuery);
         actions.Controls.Add(_btnExportSchema);
         actions.Controls.Add(_btnExportSnapshot);
+        actions.Controls.Add(_chkSanitizeSnapshot);
 
         var split = new SplitContainer
         {
@@ -416,8 +424,10 @@ public sealed class SchemaExplorerForm : Form
         var answer = MessageBox.Show(
             this,
             "Se intentarán leer hasta 10 filas de cada tabla y vista accesible. " +
-            "El snapshot aplica anonimización automática y omite LOB/binarios. " +
-            "La operación puede tardar varios minutos. ¿Continuar?",
+            (_chkSanitizeSnapshot.Checked
+                ? "La anonimización está activada. "
+                : "La anonimización está desactivada y se exportarán valores reales. ") +
+            "Los LOB/binarios se omiten. La operación puede tardar varios minutos. ¿Continuar?",
             "Exportar snapshot completo",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Information);
@@ -442,6 +452,7 @@ public sealed class SchemaExplorerForm : Form
             var manifest = await exporter.ExportAsync(
                 dialog.FileName,
                 10,
+                _chkSanitizeSnapshot.Checked,
                 progress,
                 cts.Token);
 
@@ -586,6 +597,7 @@ public sealed class SchemaExplorerForm : Form
         _btnCopySampleQuery.Enabled = !busy;
         _btnExportSchema.Enabled = !busy;
         _btnExportSnapshot.Enabled = !busy;
+        _chkSanitizeSnapshot.Enabled = !busy;
         _cmbArea.Enabled = !busy;
         _txtSearch.Enabled = !busy;
 
